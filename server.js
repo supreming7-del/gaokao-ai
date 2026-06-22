@@ -175,9 +175,106 @@ async function analyzeSchool(userInfo, schoolItem) {
   if (schoolItem.type === '稳') analysisType = '稳妥选择';
   else if (schoolItem.type === '保') analysisType = '保底选择';
 
-  const prompt = `考生${userInfo.subjectType}，${userInfo.rank ? '位次' + userInfo.rank + '名' : userInfo.score + '分'}。推荐${analysisType}：${schoolItem.school}，录取最低位次${schoolItem.min_rank}名${schoolItem.min_score ? '，最低分' + schoolItem.min_score : ''}。请用30-50字分析该校是否值得报考及填报建议。`;
+  const prompt = `请作为高考志愿专家，为考生分析以下推荐院校（100字以内）：
 
-  return await callDeepSeek(prompt, 200);
+考生信息：${userInfo.subjectType}，${userInfo.rank ? '位次' + userInfo.rank + '名' : userInfo.score + '分'}
+推荐院校：${schoolItem.school}
+2025年录取数据：最低位次${schoolItem.min_rank}名${schoolItem.min_score ? '，最低分' + schoolItem.min_score : ''}
+推荐梯度：${analysisType}（位次相差${absDiff}名）
+
+请从以下三方面简短分析：
+1️⃣ 学校层次定位（985/211/双一流/省重点/普通本科/专科）
+2️⃣ 录取概率判断
+3️⃣ 志愿填报建议（第几梯度、是否服从调剂等）`;
+
+  return await callDeepSeek(prompt, 300);
+}
+
+// 生成完整AI填报报告
+async function generateFullReport(userInfo, chong, wen, bao) {
+  const chongNames = chong.slice(0, 3).map(s => s.school).join('、');
+  const wenNames = wen.slice(0, 3).map(s => s.school).join('、');
+  const baoNames = bao.slice(0, 3).map(s => s.school).join('、');
+
+  const prompt = `你是一位资深高考志愿填报专家。请根据以下信息，为考生生成一份完整的志愿填报分析报告（200字以内）：
+
+考生：${userInfo.subjectType}，${userInfo.rank ? '位次' + userInfo.rank + '名' : userInfo.score + '分'}
+
+冲刺院校：${chongNames || '无'}
+稳妥院校：${wenNames || '无'}
+保底院校：${baoNames || '无'}
+
+请包含：
+1️⃣ 整体策略建议（冲稳保如何搭配）
+2️⃣ 最容易"捡漏"的院校点评
+3️⃣ 填报注意事项（如专业是否服从调剂）
+4️⃣ 给考生的最后建议`;
+
+  return await callDeepSeek(prompt, 500);
+}
+
+// ========== 激活码系统 ==========
+const CODES_FILE = path.join(__dirname, 'codes.json');
+const ADMIN_KEY = process.env.ADMIN_KEY || 'admin888'; // 建议设置复杂一点的密钥
+
+function loadCodes() {
+  try {
+    if (fs.existsSync(CODES_FILE)) {
+      return JSON.parse(fs.readFileSync(CODES_FILE, 'utf-8'));
+    }
+  } catch(e) { console.error('加载codes.json失败:', e.message); }
+  return {};
+}
+
+function saveCodes(codes) {
+  fs.writeFileSync(CODES_FILE, JSON.stringify(codes, null, 2));
+}
+
+function generateCode(days = 3, memo = '') {
+  const codes = loadCodes();
+  // 生成8位随机码
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  codes[code] = {
+    created: Date.now(),
+    expires: Date.now() + days * 24 * 60 * 60 * 1000,
+    used: false,
+    memo: memo
+  };
+  saveCodes(codes);
+  return code;
+}
+
+// 管理员永久激活码（设置 MASTER_CODE 环境变量）
+const MASTER_CODE = process.env.MASTER_CODE || '';
+
+function verifyCode(code) {
+  // 管理员永久码：永远有效，不限次数
+  if (MASTER_CODE && code === MASTER_CODE) {
+    return { valid: true, master: true, expires: Date.now() + 365 * 10 * 24 * 3600 * 1000 };
+  }
+
+  const codes = loadCodes();
+  const entry = codes[code];
+  if (!entry) return { valid: false, reason: '激活码无效' };
+  if (entry.used) return { valid: false, reason: '该激活码已被使用' };
+  if (Date.now() > entry.expires) return { valid: false, reason: '激活码已过期（' + new Date(entry.expires).toLocaleDateString('zh-CN') + '）' };
+  return { valid: true, expires: entry.expires };
+}
+
+function markCodeUsed(code) {
+  // 管理员永久码不标记已使用
+  if (MASTER_CODE && code === MASTER_CODE) return;
+
+  const codes = loadCodes();
+  if (codes[code]) {
+    codes[code].used = true;
+    codes[code].usedAt = Date.now();
+    saveCodes(codes);
+  }
 }
 
 // ========== Express 服务 ==========
@@ -250,6 +347,20 @@ app.post('/api/analyze', async (req, res) => {
   }
 });
 
+// 完整AI填报报告
+app.post('/api/full-report', async (req, res) => {
+  try {
+    const { userInfo, chong, wen, bao } = req.body;
+    if (!userInfo) return res.status(400).json({ error: '缺少考生信息' });
+
+    const result = await generateFullReport(userInfo, chong || [], wen || [], bao || []);
+    res.json({ report: result.text || null, error: result.error || null });
+  } catch (error) {
+    console.error('Full report error:', error);
+    res.status(500).json({ error: '生成报告失败' });
+  }
+});
+
 // DeepSeek 密钥状态检查
 app.get('/api/status', (req, res) => {
   res.json({
@@ -258,8 +369,55 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// ========== 激活码接口 ==========
+
+// 验证激活码
+app.post('/api/verify-code', (req, res) => {
+  const { code } = req.body;
+  if (!code || !code.trim()) {
+    return res.json({ valid: false, reason: '请输入激活码' });
+  }
+  const result = verifyCode(code.trim().toUpperCase());
+  if (result.valid) {
+    markCodeUsed(code.trim().toUpperCase());
+  }
+  res.json(result);
+});
+
+// 管理端：生成激活码（需 ADMIN_KEY）
+app.post('/api/admin/generate', (req, res) => {
+  const { adminKey, days, count, memo } = req.body;
+  if (adminKey !== ADMIN_KEY) {
+    return res.status(403).json({ error: '无权限' });
+  }
+  const num = Math.min(count || 1, 50);
+  const codes = [];
+  for (let i = 0; i < num; i++) {
+    codes.push(generateCode(days || 3, memo || ''));
+  }
+  res.json({ codes, days: days || 3, note: '每个激活码限使用一次，过期自动失效' });
+});
+
+// 管理端：查看所有激活码
+app.post('/api/admin/list', (req, res) => {
+  const { adminKey } = req.body;
+  if (adminKey !== ADMIN_KEY) {
+    return res.status(403).json({ error: '无权限' });
+  }
+  const codes = loadCodes();
+  const list = Object.entries(codes).map(([code, info]) => ({
+    code,
+    created: new Date(info.created).toLocaleString('zh-CN'),
+    expires: new Date(info.expires).toLocaleString('zh-CN'),
+    used: info.used,
+    memo: info.memo || ''
+  }));
+  res.json({ total: list.length, codes: list });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ 高考志愿助手启动成功: http://localhost:${PORT}`);
   console.log(`📊 已加载 ${Object.keys(GAOKAO_DATA).length} 所院校数据`);
   console.log(`🤖 AI 分析: ${DEEPSEEK_API_KEY ? '已启用' : '未配置（需设置 DEEPSEEK_API_KEY）'}`);
+  console.log(`🔑 激活码管理: ${ADMIN_KEY !== 'admin888' ? '已配置' : '使用默认密钥'}`);
 });
