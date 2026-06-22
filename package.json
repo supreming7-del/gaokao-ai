@@ -1,0 +1,12 @@
+{
+  "name": "gaokao-ai",
+  "version": "1.0.0",
+  "description": "AI高考志愿填报助手 - 基于2025年甘肃真实录取数据",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

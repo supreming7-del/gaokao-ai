@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AI高考志愿填报助手</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-light: #3b82f6;
+    --primary-dark: #1d4ed8;
+    --chong: #ef4444;
+    --chong-bg: #fef2f2;
+    --wen: #f59e0b;
+    --wen-bg: #fffbeb;
+    --bao: #10b981;
+    --bao-bg: #ecfdf5;
+    --ai: #8b5cf6;
+    --ai-bg: #f5f3ff;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-secondary: #64748b;
+    --border: #e2e8f0;
+    --shadow: 0 1px 3px rgba(0,0,0,0.1);
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans CJK", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding-bottom: 80px;
+  }
+  .header {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%);
+    color: white; padding: 32px 20px 24px; text-align: center; position: relative; overflow: hidden;
+  }
+  .header::after {
+    content: ''; position: absolute; bottom: -20px; left: -20px; right: -20px;
+    height: 40px; background: var(--bg); border-radius: 50% 50% 0 0;
+  }
+  .header h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+  .header p { font-size: 14px; opacity: 0.85; }
+  .header .badge {
+    display: inline-block; background: rgba(255,255,255,0.2);
+    padding: 2px 10px; border-radius: 20px; font-size: 12px; margin-top: 8px;
+  }
+  .container { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+  .card {
+    background: var(--card); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 20px; margin-top: 16px;
+  }
+  .form-group { margin-bottom: 16px; }
+  .form-group label {
+    display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--text);
+  }
+  .form-group select, .form-group input {
+    width: 100%; padding: 12px 14px; border: 1.5px solid var(--border);
+    border-radius: 8px; font-size: 16px; color: var(--text); background: white;
+    transition: border-color 0.2s; -webkit-appearance: none; appearance: none;
+  }
+  .form-group select:focus, .form-group input:focus {
+    outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+  }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .submit-btn {
+    width: 100%; padding: 14px;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: white; border: none; border-radius: 8px; font-size: 17px;
+    font-weight: 600; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .submit-btn:active { transform: scale(0.98); }
+  .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+  .loading { display: none; text-align: center; padding: 40px 20px; }
+  .loading.active { display: block; }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border); border-top-color: var(--primary);
+    border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading p { color: var(--text-secondary); font-size: 14px; }
+  .result { display: none; }
+  .result.active { display: block; }
+  .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .section-title .icon { font-size: 20px; }
+  .rec-card { border-radius: 10px; padding: 14px; margin-bottom: 10px; border-left: 4px solid; position: relative; }
+  .rec-card.chong { background: var(--chong-bg); border-color: var(--chong); }
+  .rec-card.wen { background: var(--wen-bg); border-color: var(--wen); }
+  .rec-card.bao { background: var(--bao-bg); border-color: var(--bao); }
+  .rec-card .school-name { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .rec-card .majors { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+  .rec-card .majors span {
+    display: inline-block; background: rgba(0,0,0,0.05);
+    padding: 1px 8px; border-radius: 4px; margin: 2px 4px 2px 0; font-size: 12px;
+  }
+  .rec-card .prob {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 13px; font-weight: 600; margin-bottom: 6px;
+  }
+  .chong .prob { background: #fecaca; color: #dc2626; }
+  .wen .prob { background: #fde68a; color: #d97706; }
+  .bao .prob { background: #a7f3d0; color: #059669; }
+  .rec-card .reason { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+  .summary-box {
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    border-radius: 10px; padding: 14px; margin-top: 16px;
+    font-size: 14px; line-height: 1.7; color: #1e40af;
+  }
+  .disclaimer {
+    background: #f8fafc; border: 1px dashed #cbd5e1;
+    border-radius: 8px; padding: 10px 14px; margin-top: 12px;
+    font-size: 12px; color: var(--text-secondary); text-align: center;
+  }
+  .error-box { display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 20px; text-align: center; margin-top: 16px; }
+  .error-box.active { display: block; }
+  .error-box .error-title { font-size: 16px; font-weight: 600; color: #dc2626; margin-bottom: 4px; }
+  .error-box .error-detail { font-size: 13px; color: var(--text-secondary); }
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--text-secondary); }
+  .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-state h3 { font-size: 18px; color: var(--text); margin-bottom: 8px; }
+  .empty-state p { font-size: 14px; line-height: 1.6; }
+  .tips {
+    background: #f0f9ff; border: 1px solid #bae6fd;
+    border-radius: 10px; padding: 14px; margin-top: 16px;
+    font-size: 13px; color: #0369a1; line-height: 1.6;
+  }
+  .tips strong { display: block; margin-bottom: 4px; font-size: 14px; }
+  .footer { text-align: center; padding: 24px 16px; font-size: 12px; color: var(--text-secondary); }
+  .stats-badge {
+    display: flex; justify-content: center; gap: 16px; margin-top: 12px;
+  }
+  .stats-badge span {
+    background: rgba(255,255,255,0.15); padding: 4px 12px; border-radius: 12px; font-size: 12px;
+  }
+
+  /* ===== AI 分析样式 ===== */
+  .ai-btn {
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+    color: white; border: none; border-radius: 8px; padding: 8px 16px;
+    font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .ai-btn:active { transform: scale(0.96); }
+  .ai-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .ai-btn.small { padding: 4px 10px; font-size: 11px; }
+  .ai-result {
+    margin-top: 8px; padding: 10px 12px; border-radius: 8px;
+    font-size: 13px; line-height: 1.6; display: none;
+    background: var(--ai-bg); border: 1px solid #ddd6fe; color: #5b21b6;
+  }
+  .ai-result.active { display: block; }
+  .ai-result .ai-loading {
+    display: flex; align-items: center; gap: 8px; color: var(--text-secondary);
+  }
+  .ai-result .ai-loading .mini-spinner {
+    width: 16px; height: 16px; border: 2px solid #e0e7ff;
+    border-top-color: #7c3aed; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0;
+  }
+  .ai-result .ai-error { color: #dc2626; }
+  .ai-result .ai-label { font-weight: 600; font-size: 12px; margin-bottom: 4px; color: #7c3aed; }
+
+  @media (max-width: 480px) {
+    .header h1 { font-size: 20px; }
+    .form-row { grid-template-columns: 1fr; }
+    .container { padding: 0 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎯 AI 高考志愿助手</h1>
+  <p>基于2025年甘肃省1817所院校真实录取数据</p>
+  <div class="stats-badge">
+    <span>📊 1817 所院校</span>
+    <span>🤖 DeepSeek AI 分析</span>
+  </div>
+</div>
+
+<div class="container">
+  <div id="emptyState" class="card empty-state">
+    <div class="empty-icon">📋</div>
+    <h3>开始你的志愿评估</h3>
+    <p>填写你的高考分数和选科信息<br>基于真实录取数据推荐"冲-稳-保"梯度志愿<br>AI 智能解读每所推荐院校</p>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
+    <form id="mainForm">
+      <div class="form-group">
+        <label>所在省份</label>
+        <select id="province" required>
+          <option value="">请选择省份</option>
+          <option value="甘肃" selected>甘肃</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>首选科目</label>
+          <select id="subjectType" required>
+            <option value="物理类">物理类（首选物理）</option>
+            <option value="历史类">历史类（首选历史）</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>再选科目</label>
+          <select id="subjects">
+            <option value="不限">不限</option>
+            <option value="化学">化学</option>
+            <option value="生物">生物</option>
+            <option value="地理">地理</option>
+            <option value="政治">政治</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>高考分数</label>
+          <input type="number" id="score" min="0" max="750" placeholder="例：580" required>
+        </div>
+        <div class="form-group">
+          <label>全省位次（推荐填写）</label>
+          <input type="number" id="rank" min="0" placeholder="例：12500">
+        </div>
+      </div>
+      <button type="submit" class="submit-btn" id="submitBtn">
+        🚀 AI 智能推荐
+      </button>
+    </form>
+    <div class="tips">
+      <strong>💡 使用提示</strong>
+      基于2025年甘肃省录取数据，位次比分数更准确。结果仅供参考，填报前请核对官方招生章程。
+    </div>
+  </div>
+
+  <div id="loading" class="card loading">
+    <div class="spinner"></div>
+    <p>🧠 正在分析你的志愿方案...</p>
+  </div>
+
+  <div id="errorBox" class="error-box">
+    <div class="error-icon">😅</div>
+    <div class="error-title">获取推荐失败</div>
+    <div class="error-detail" id="errorDetail">请检查网络后重试</div>
+    <button onclick="retryLastQuery()" style="margin-top:12px;padding:8px 20px;border:1px solid #fecaca;border-radius:6px;background:white;color:#dc2626;cursor:pointer;font-size:14px;">重试</button>
+  </div>
+
+  <div id="result" class="result">
+    <div class="card">
+      <div class="section-title"><span class="icon">🔥</span> 冲刺推荐（冲）<span style="font-size:12px;color:var(--text-secondary);font-weight:400;">位次高300-3500名</span></div>
+      <div id="chongList"></div>
+    </div>
+    <div class="card">
+      <div class="section-title"><span class="icon">✅</span> 稳妥推荐（稳）<span style="font-size:12px;color:var(--text-secondary);font-weight:400;">位次±500名以内</span></div>
+      <div id="wenList"></div>
+    </div>
+    <div class="card">
+      <div class="section-title"><span class="icon">🛡️</span> 保底推荐（保）<span style="font-size:12px;color:var(--text-secondary);font-weight:400;">位次低800+名</span></div>
+      <div id="baoList"></div>
+    </div>
+    <div class="card">
+      <div class="section-title"><span class="icon">📝</span> 综合建议</div>
+      <div id="summaryBox" class="summary-box"></div>
+      <div id="disclaimerBox" class="disclaimer"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    AI高考志愿助手 · 数据来源：甘肃省2025年招生计划 · 仅供参考
+  </div>
+</div>
+
+<script>
+// ========== 状态 ==========
+let lastQueryData = null;
+let lastRecData = null;
+let aiResults = {};
+
+// ========== 表单提交 ==========
+document.getElementById('mainForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  const province = document.getElementById('province').value;
+  const score = document.getElementById('score').value;
+  const rank = document.getElementById('rank').value;
+  const subjectType = document.getElementById('subjectType').value;
+  const subjects = document.getElementById('subjects').value;
+
+  if (!province) { alert('请选择省份'); return; }
+  if (!score) { alert('请输入分数'); return; }
+
+  lastQueryData = { province, score, rank, subjectType, subjects };
+  aiResults = {};
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('result').classList.remove('active');
+  document.getElementById('errorBox').classList.remove('active');
+  document.getElementById('loading').classList.add('active');
+  document.getElementById('submitBtn').disabled = true;
+
+  try {
+    const response = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ province, score, rank, subjectType, subjects })
+    });
+
+    if (!response.ok) throw new Error('API error: ' + response.status);
+    const data = await response.json();
+
+    if (data.error) {
+      document.getElementById('errorDetail').textContent = data.error;
+      document.getElementById('errorBox').classList.add('active');
+      return;
+    }
+
+    renderResults(data, { score, rank, subjectType });
+  } catch (error) {
+    console.error('API fail, using fallback:', error);
+    const fallback = generateFallback(parseInt(score), rank);
+    renderResults(fallback, { score, rank, subjectType });
+  } finally {
+    document.getElementById('loading').classList.remove('active');
+    document.getElementById('submitBtn').disabled = false;
+  }
+});
+
+function renderResults(data, userInfo) {
+  const chong = data.chong || [];
+  const wen = data.wen || [];
+  const bao = data.bao || [];
+
+  if (chong.length === 0 && wen.length === 0 && bao.length === 0) {
+    document.getElementById('errorDetail').textContent = '未生成推荐结果，请调整信息后重试';
+    document.getElementById('errorBox').classList.add('active');
+    return;
+  }
+
+  lastRecData = { chong, wen, bao, userInfo };
+
+  renderCardList('chongList', chong, 'chong');
+  renderCardList('wenList', wen, 'wen');
+  renderCardList('baoList', bao, 'bao');
+
+  document.getElementById('summaryBox').textContent = data.summary || '综合以上推荐，建议按"冲-稳-保"梯度填报。';
+  document.getElementById('disclaimerBox').textContent = data.disclaimer || '仅供参考';
+
+  document.getElementById('result').classList.add('active');
+  document.getElementById('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderCardList(containerId, items, type) {
+  const container = document.getElementById(containerId);
+  if (!items || items.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:12px;color:var(--text-secondary);font-size:14px;">暂未匹配到合适的推荐</div>';
+    return;
+  }
+  container.innerHTML = items.map((item, idx) => {
+    const typeLabel = type === 'chong' ? '冲' : type === 'wen' ? '稳' : '保';
+    return `
+    <div class="rec-card ${type}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div style="flex:1;">
+          <div class="school-name">${idx + 1}. ${item.school || '未知院校'}</div>
+        </div>
+        <button class="ai-btn small" onclick="analyzeSingle('${item.school.replace(/'/g, "\\'")}','${typeLabel}')" id="aiBtn_${item.school.replace(/[^a-zA-Z0-9_一-龥]/g, '_')}">
+          🤖 AI 分析
+        </button>
+      </div>
+      ${item.majors && item.majors.length > 0 ? `
+        <div class="majors">推荐专业：${item.majors.map(m => '<span>' + m + '</span>').join('')}</div>
+      ` : ''}
+      <div class="prob">录取概率 ${item.probability || '待估'}</div>
+      <div class="reason">${item.reason || ''}</div>
+      <div class="ai-result" id="aiResult_${item.school.replace(/[^a-zA-Z0-9_一-龥]/g, '_')}"></div>
+    </div>`;
+  }).join('');
+}
+
+// ========== AI 分析 ==========
+async function analyzeSingle(schoolName, typeLabel) {
+  const safeName = schoolName.replace(/[^a-zA-Z0-9_一-龥]/g, '_');
+  const resultDiv = document.getElementById('aiResult_' + safeName);
+  const btn = document.getElementById('aiBtn_' + safeName);
+  if (!resultDiv || !lastRecData) return;
+
+  // 已有结果则折叠/展开
+  if (aiResults[schoolName]) {
+    resultDiv.classList.toggle('active');
+    btn.textContent = resultDiv.classList.contains('active') ? '🤖 已解读' : '🤖 AI 分析';
+    return;
+  }
+
+  // 显示加载
+  btn.disabled = true;
+  btn.textContent = '⏳ 分析中';
+  resultDiv.innerHTML = '<div class="ai-loading"><div class="mini-spinner"></div><span>AI 正在分析该校...</span></div>';
+  resultDiv.classList.add('active');
+
+  // 查找该校完整数据
+  const allItems = [...(lastRecData.chong || []), ...(lastRecData.wen || []), ...(lastRecData.bao || [])];
+  const schoolItem = allItems.find(i => i.school === schoolName);
+
+  if (!schoolItem) {
+    resultDiv.innerHTML = '<div class="ai-error">未找到该校录取数据</div>';
+    btn.disabled = false;
+    btn.textContent = '🤖 AI 分析';
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        schools: [{
+          school: schoolItem.school,
+          type: typeLabel,
+          min_rank: schoolItem.min_rank,
+          min_score: schoolItem.min_score,
+          diff: schoolItem.diff
+        }],
+        userInfo: {
+          score: lastRecData.userInfo.score,
+          rank: lastRecData.userInfo.rank,
+          subjectType: lastRecData.userInfo.subjectType
+        }
+      })
+    });
+
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const data = await response.json();
+
+    if (data.results && data.results[0]) {
+      const r = data.results[0];
+      if (r.analysis) {
+        aiResults[schoolName] = r.analysis;
+        resultDiv.innerHTML = '<div class="ai-label">🤖 AI 智能解读</div>' + r.analysis;
+        btn.textContent = '🤖 已解读';
+      } else {
+        resultDiv.innerHTML = '<div class="ai-error">' + (r.error || '分析暂不可用') + '</div>';
+        btn.textContent = '🤖 AI 分析';
+      }
+    } else {
+      resultDiv.innerHTML = '<div class="ai-error">' + (data.error || '分析服务暂不可用') + '</div>';
+      btn.textContent = '🤖 AI 分析';
+    }
+  } catch (error) {
+    resultDiv.innerHTML = '<div class="ai-error">AI 分析暂不可用，请稍后重试</div>';
+    btn.textContent = '🤖 AI 分析';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function retryLastQuery() {
+  if (lastQueryData) document.getElementById('mainForm').dispatchEvent(new Event('submit'));
+}
+
+// 兜底推荐（API完全不可用时）
+function generateFallback(score, rank) {
+  return {
+    chong: [
+      {school: '兰州大学', majors: ['计算机科学与技术', '电子信息工程'], probability: '30%', diff: 1500, min_rank: 6000, min_score: 580, reason: '985/双一流高校，2025年在甘肃录取最低位次约6000名左右，适合冲刺。'},
+      {school: '西北师范大学', majors: ['教育学', '汉语言文学'], probability: '25%', diff: 1200, min_rank: 8500, min_score: 560, reason: '省属重点师范院校，适合有志从事教育工作的考生冲刺。'},
+      {school: '兰州交通大学', majors: ['交通运输工程', '土木工程'], probability: '35%', diff: 800, min_rank: 10000, min_score: 550, reason: '轨道交通特色院校，行业认可度高。'}
+    ],
+    wen: [
+      {school: '兰州理工大学', majors: ['机械设计制造及其自动化', '电气工程'], probability: '65%', diff: -200, min_rank: 13000, min_score: 530, reason: '省属重点工科院校，工程学科实力较强。'},
+      {school: '兰州财经大学', majors: ['会计学', '金融学'], probability: '70%', diff: -300, min_rank: 15000, min_score: 520, reason: '财经类特色院校，在西北地区有竞争力。'},
+      {school: '甘肃政法大学', majors: ['法学', '行政管理'], probability: '72%', diff: -400, min_rank: 16000, min_score: 515, reason: '省内法学类首选院校。'}
+    ],
+    bao: [
+      {school: '天水师范学院', majors: ['小学教育', '学前教育'], probability: '90%', diff: -2000, min_rank: 20000, min_score: 490, reason: '师范类本科院校，保底录取把握大。'},
+      {school: '甘肃农业大学', majors: ['农学', '动物医学'], probability: '92%', diff: -2500, min_rank: 22000, min_score: 485, reason: '省属农林院校，录取位次较低。'},
+      {school: '河西学院', majors: ['汉语言文学', '数学与应用数学'], probability: '95%', diff: -3000, min_rank: 25000, min_score: 470, reason: '综合类本科院校，录取把握很大。'}
+    ],
+    summary: '基于你的' + score + '分（位次' + (rank || '待查') + '），推荐以上冲稳保方案。建议合理搭配。',
+    disclaimer: '本推荐仅供参考，具体以省教育考试院官方数据为准。'
+  };
+}
+</script>
+</body>
+</html>
