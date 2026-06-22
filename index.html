@@ -393,7 +393,7 @@
 <script>
 // ========== 激活码（带有效期校验） ==========
 function getExpires() { return parseInt(localStorage.getItem('gaokao_expires') || '0'); }
-function isUnlocked() { return true; } // TODO: 上线改回 Date.now() < getExpires()
+function isUnlocked() { return Date.now() < getExpires(); }
 function daysLeft() { const e = getExpires(); if (!e) return 0; return Math.ceil((e - Date.now()) / 86400000); }
 function scrollToUnlock() { document.getElementById('codeInput').focus(); document.getElementById('unlockCard').scrollIntoView({behavior:'smooth'}); }
 
@@ -559,9 +559,7 @@ function fallback(score,rank){return {
 }};
 
 // ========== 初始化 ==========
-// 暂时隐藏解锁相关界面（测试阶段）
-document.getElementById('unlockCard').style.display = 'none';
-document.getElementById('lockOverlay').style.display = 'none';
+if (isUnlocked()) document.getElementById('unlockCard').style.display = 'none';
 </script>
 </body>
 </html>
