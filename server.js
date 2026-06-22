@@ -171,46 +171,63 @@ async function analyzeSchool(userInfo, schoolItem) {
   const diff = schoolItem.diff !== undefined ? schoolItem.diff : 0;
   const absDiff = Math.abs(diff);
 
-  let analysisType = '冲一冲';
-  if (schoolItem.type === '稳') analysisType = '稳妥选择';
-  else if (schoolItem.type === '保') analysisType = '保底选择';
+  let analysisType = '冲一冲（冲刺）';
+  if (schoolItem.type === '稳') analysisType = '稳一稳（稳妥）';
+  else if (schoolItem.type === '保') analysisType = '保一保（保底）';
 
-  const prompt = `请作为高考志愿专家，为考生分析以下推荐院校（100字以内）：
+  const prompt = `你是一位资深高考志愿填报专家，请为考生提供详细的院校分析（200字以内）。
 
-考生信息：${userInfo.subjectType}，${userInfo.rank ? '位次' + userInfo.rank + '名' : userInfo.score + '分'}
-推荐院校：${schoolItem.school}
-2025年录取数据：最低位次${schoolItem.min_rank}名${schoolItem.min_score ? '，最低分' + schoolItem.min_score : ''}
-推荐梯度：${analysisType}（位次相差${absDiff}名）
+【考生信息】
+- 科目：${userInfo.subjectType}
+- ${userInfo.rank ? '全省位次：' + userInfo.rank + '名' : '高考分数：' + userInfo.score + '分'}
 
-请从以下三方面简短分析：
-1️⃣ 学校层次定位（985/211/双一流/省重点/普通本科/专科）
-2️⃣ 录取概率判断
-3️⃣ 志愿填报建议（第几梯度、是否服从调剂等）`;
+【推荐院校】${schoolItem.school}
+【2025年录取数据】最低位次 ${schoolItem.min_rank} 名${schoolItem.min_score ? '，最低分 ' + schoolItem.min_score : ''}
+【推荐梯度】${analysisType}（位次相差 ${absDiff} 名）
 
-  return await callDeepSeek(prompt, 300);
+请按以下格式分析（每点用简短的一两句话）：
+
+【学校层次】该校属于什么层次（985/211/双一流/省重点/普通本科/专科），在省内外的认可度如何。
+
+【录取评估】基于你的位次，录取该校的概率有多大，风险点在哪。
+
+【专业建议】该校的王牌专业有哪些，你选科情况下适合报什么专业方向。
+
+【填报策略】这所学校应该填在志愿表的第几个位置，是否建议服从专业调剂。
+
+【同类对比】和同层次的其他学校相比，这所的优势和劣势是什么。`;
+
+  return await callDeepSeek(prompt, 500);
 }
 
 // 生成完整AI填报报告
 async function generateFullReport(userInfo, chong, wen, bao) {
-  const chongNames = chong.slice(0, 3).map(s => s.school).join('、');
-  const wenNames = wen.slice(0, 3).map(s => s.school).join('、');
-  const baoNames = bao.slice(0, 3).map(s => s.school).join('、');
+  const chongList = chong.slice(0, 3).map(s => s.school + '(' + s.probability + ')').join('、');
+  const wenList = wen.slice(0, 3).map(s => s.school + '(' + s.probability + ')').join('、');
+  const baoList = bao.slice(0, 3).map(s => s.school + '(' + s.probability + ')').join('、');
 
-  const prompt = `你是一位资深高考志愿填报专家。请根据以下信息，为考生生成一份完整的志愿填报分析报告（200字以内）：
+  const prompt = `你是一位资深高考志愿填报专家，请为考生撰写一份完整的志愿填报方案分析报告（300字以内）。
 
-考生：${userInfo.subjectType}，${userInfo.rank ? '位次' + userInfo.rank + '名' : userInfo.score + '分'}
+【考生档案】
+- 科目：${userInfo.subjectType}
+- ${userInfo.rank ? '全省位次：' + userInfo.rank + '名' : '高考分数：' + userInfo.score + '分'}
 
-冲刺院校：${chongNames || '无'}
-稳妥院校：${wenNames || '无'}
-保底院校：${baoNames || '无'}
+【推荐方案】
+- 冲刺院校：${chongList || '暂无'}
+- 稳妥院校：${wenList || '暂无'}
+- 保底院校：${baoList || '暂无'}
 
-请包含：
-1️⃣ 整体策略建议（冲稳保如何搭配）
-2️⃣ 最容易"捡漏"的院校点评
-3️⃣ 填报注意事项（如专业是否服从调剂）
-4️⃣ 给考生的最后建议`;
+请撰写报告，包含以下部分：
 
-  return await callDeepSeek(prompt, 500);
+1.【梯度搭配评估】当前冲-稳-保的搭配是否合理，建议如何调整数量和比例。
+
+2.【重点推荐】从所有推荐院校中，选出最值得填报的 2-3 所，说明理由。
+
+3.【风险控制】存在哪些滑档风险？如何通过志愿顺序和调剂策略来降低风险。
+
+4.【行动清单】给考生列一个清晰的填报步骤（如先确定哪几所、如何排序等）。`;
+
+  return await callDeepSeek(prompt, 800);
 }
 
 // ========== 激活码系统 ==========
