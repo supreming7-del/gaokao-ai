@@ -4,25 +4,40 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 
-// ========== 加载录取数据 ==========
-const GAOKAO_DATA = require('./gaokao-data.js');
+// ========== 加载录取数据（2025年甘肃·院校专业组）==========
+const GAOKAO_DATA = require('./gaokao-data-2026.json');
 
-// ========== 推荐引擎 ==========
+// ========== 选科匹配 ==========
+function checkSubjectMatch(requirement, userSubjects) {
+  if (!requirement || requirement === '不限') return true;
+  const required = requirement.includes('+') ? requirement.split('+') : [requirement];
+  return required.every(r => userSubjects.includes(r));
+}
+
+// ========== 推荐引擎（院校专业组版）==========
 function generateRecommendation(province, score, rank, subjectType, subjects) {
   const subjKey = subjectType === '物理类' ? '物理' : '历史';
   const rankNum = rank ? parseInt(rank) : null;
+  const userSubjects = (subjects || '').split(',').map(s => s.trim()).filter(Boolean);
 
   let candidates = [];
-  for (const [school, subjectsData] of Object.entries(GAOKAO_DATA)) {
-    if (subjectsData[subjKey]) {
-      const info = subjectsData[subjKey];
-      if (info.r !== null && info.r !== undefined && info.r !== '') {
-        candidates.push({
-          school: school,
-          min_rank: parseInt(info.r),
-          min_score: info.s !== null && info.s !== '' ? parseInt(info.s) : null
-        });
-      }
+  for (const [school, info] of Object.entries(GAOKAO_DATA)) {
+    for (const g of info.groups) {
+      if (g.subject !== subjKey) continue;
+      if (g.min_rank === null || g.min_rank === undefined) continue;
+      if (!checkSubjectMatch(g.xk, userSubjects)) continue;
+
+      candidates.push({
+        school: school,
+        school_code: info.code,
+        group: g.group,
+        xk: g.xk,
+        min_rank: g.min_rank,
+        min_score: g.min_score,
+        majors: g.majors,
+        major_count: g.major_count,
+        plan_total: g.plan_total
+      });
     }
   }
 
@@ -31,131 +46,109 @@ function generateRecommendation(province, score, rank, subjectType, subjects) {
   let chong = [], wen = [], bao = [];
 
   if (rankNum) {
+    // 宽松匹配：所有候选按位次差分类
     for (const c of candidates) {
       const diff = rankNum - c.min_rank;
-      if (diff > 300 && diff <= 3500) {
-        const prob = Math.round(15 + (1 - (diff - 300) / 3200) * 25);
-        chong.push({ school: c.school, min_rank: c.min_rank, min_score: c.min_score, majors: pickMajors(c.school, subjectType), probability: prob + '%', type: '冲', diff });
-      } else if (diff >= -500 && diff <= 300) {
-        const prob = Math.round(55 + (1 - Math.abs(diff) / 800) * 20);
-        wen.push({ school: c.school, min_rank: c.min_rank, min_score: c.min_score, majors: pickMajors(c.school, subjectType), probability: prob + '%', type: '稳', diff });
-      } else if (diff < -500) {
-        const prob = Math.round(85 + Math.min(Math.abs(diff) / 5000, 0.13) * 100);
-        bao.push({ school: c.school, min_rank: c.min_rank, min_score: c.min_score, majors: pickMajors(c.school, subjectType), probability: Math.min(prob, 99) + '%', type: '保', diff });
+      if (diff > 0) {
+        // 冲：位次低于学校最低录取位次
+        chong.push({ ...c, diff, type: '冲', _probRaw: 15 + (1 - Math.min(diff, 10000) / 10000) * 25 });
+      } else if (diff >= -3000) {
+        // 稳：位次略高于学校
+        wen.push({ ...c, diff, type: '稳', _probRaw: 55 + (1 - Math.min(Math.abs(diff), 3000) / 3000) * 25 });
+      } else {
+        // 保：位次远高于学校
+        bao.push({ ...c, diff, type: '保', _probRaw: 85 + Math.min(Math.abs(diff) / 30000, 0.14) * 100 });
       }
     }
   } else {
+    // 无位次时按分数匹配
     for (const c of candidates) {
       if (!c.min_score) continue;
       const diff = c.min_score - score;
-      if (diff > 0 && diff <= 20) {
-        chong.push({ school: c.school, min_rank: c.min_rank, min_score: c.min_score, majors: pickMajors(c.school, subjectType), probability: '30%', type: '冲', diff });
-      } else if (diff >= -10 && diff <= 0) {
-        wen.push({ school: c.school, min_rank: c.min_rank, min_score: c.min_score, majors: pickMajors(c.school, subjectType), probability: '65%', type: '稳', diff });
-      } else if (diff < -10) {
-        bao.push({ school: c.school, min_rank: c.min_rank, min_score: c.min_score, majors: pickMajors(c.school, subjectType), probability: '90%', type: '保', diff });
+      if (diff > 0) {
+        chong.push({ ...c, diff, type: '冲', _probRaw: 20 + (1 - Math.min(diff, 30) / 30) * 30 });
+      } else if (diff >= -15) {
+        wen.push({ ...c, diff, type: '稳', _probRaw: 55 + (1 - Math.min(Math.abs(diff), 15) / 15) * 25 });
+      } else {
+        bao.push({ ...c, diff, type: '保', _probRaw: 85 + Math.min(Math.abs(diff) / 40, 0.14) * 100 });
       }
     }
   }
 
-  chong = uniqueSchools(chong).slice(0, 5);
-  wen = uniqueSchools(wen).slice(0, 5);
-  bao = uniqueSchools(bao).slice(0, 5);
+  // 排序：冲（diff从小到大=最好冲的先）、稳（diff绝对值最小=最稳的先）、保（diff从大到小=最有把握的先）
+  chong.sort((a, b) => a.diff - b.diff);
+  wen.sort((a, b) => Math.abs(a.diff) - Math.abs(b.diff));
+  bao.sort((a, b) => b.diff - a.diff);
 
-  while (chong.length < 3 && wen.length > 0) chong.push(wen.pop());
-  while (bao.length < 3 && wen.length > 0) bao.push(wen.pop());
+  // 计算概率并限制数量：目标10冲 / 25稳 / 15保（共45）
+  chong = chong.slice(0, 15).map(c => ({ ...c, probability: Math.max(5, Math.min(40, Math.round(c._probRaw))) + '%' }));
+  wen = wen.slice(0, 30).map(c => ({ ...c, probability: Math.max(40, Math.min(80, Math.round(c._probRaw))) + '%' }));
+  bao = bao.slice(0, 20).map(c => ({ ...c, probability: Math.max(75, Math.min(99, Math.round(c._probRaw))) + '%' }));
+
+  // 第二步：调整为 5~10冲 / 20~25稳 / 10~15保，总数尽量接近45
+  let finalChong, finalWen, finalBao;
+
+  if (chong.length + wen.length + bao.length <= 45) {
+    // 不够45个，全用上
+    finalChong = chong;
+    finalWen = wen;
+    finalBao = bao;
+  } else {
+    // 超过45个，按比例分配
+    let targetChong = Math.min(chong.length, 10);
+    let targetWen = Math.min(wen.length, 25);
+    let targetBao = Math.min(bao.length, 15);
+
+    let total = targetChong + targetWen + targetBao;
+    while (total > 45) {
+      if (targetWen > 20) { targetWen--; }
+      else if (targetChong > 5) { targetChong--; }
+      else if (targetBao > 10) { targetBao--; }
+      else break;
+      total = targetChong + targetWen + targetBao;
+    }
+
+    // 补到45：从稳里补
+    while (total < 45 && targetWen < wen.length) { targetWen++; total++; }
+    while (total < 45 && targetChong < chong.length) { targetChong++; total++; }
+    while (total < 45 && targetBao < bao.length) { targetBao++; total++; }
+
+    finalChong = chong.slice(0, targetChong);
+    finalWen = wen.slice(0, targetWen);
+    finalBao = bao.slice(0, targetBao);
+  }
+
+  // 第三步：保证至少5+5+5的底线（从稳里借）
+  let adjustedChong = [...finalChong];
+  let adjustedWen = [...finalWen];
+  let adjustedBao = [...finalBao];
+
+  while (adjustedChong.length < 5 && adjustedWen.length > 0) { adjustedChong.push(adjustedWen.shift()); }
+  while (adjustedBao.length < 5 && adjustedWen.length > 0) { adjustedBao.push(adjustedWen.pop()); }
+  // 如果稳已经不够了，从对方借
+  while (adjustedChong.length < 5 && adjustedBao.length > 0) { adjustedChong.push(adjustedBao.pop()); }
+  while (adjustedBao.length < 5 && adjustedChong.length > 0) { adjustedBao.push(adjustedChong.pop()); }
+
+  chong = adjustedChong;
+  wen = adjustedWen;
+  bao = adjustedBao;
 
   return {
     chong, wen, bao,
     summary: generateSummary(province, score, rankNum, subjKey, chong.length, wen.length, bao.length),
-    disclaimer: '本推荐基于2025年甘肃省录取数据（不含提前批/专项计划），仅供参考。填报前请务必核对省教育考试院官方数据及院校招生章程。'
+    disclaimer: '本推荐基于2025年甘肃省录取数据（院校专业组，不含提前批/专项计划），仅供参考。填报前请务必核对省教育考试院官方《招生专业目录》及院校招生章程。'
   };
-}
-
-function uniqueSchools(arr) {
-  const seen = new Set();
-  return arr.filter(item => {
-    if (seen.has(item.school)) return false;
-    seen.add(item.school);
-    return true;
-  });
-}
-
-function pickMajors(school, subjectType) {
-  const isLiKe = subjectType === '物理类';
-  const majorMap = {
-    '计算机': ['计算机科学与技术', '软件工程', '人工智能', '数据科学与大数据技术', '物联网工程'],
-    '电子':   ['电子信息工程', '通信工程', '微电子科学与工程', '光电信息科学与工程'],
-    '机械':   ['机械设计制造及其自动化', '自动化', '机器人工程', '智能制造工程'],
-    '土木':   ['土木工程', '建筑学', '城乡规划', '水利水电工程'],
-    '经管':   ['会计学', '金融学', '工商管理', '经济学', '财务管理'],
-    '文法':   ['法学', '汉语言文学', '新闻学', '英语', '行政管理'],
-    '医学':   ['临床医学', '护理学', '药学', '医学影像学', '口腔医学'],
-    '教育':   ['教育学', '学前教育', '小学教育', '数学与应用数学'],
-    '艺术':   ['视觉传达设计', '环境设计', '数字媒体艺术', '动画'],
-    '农林':   ['农学', '园艺', '动物医学', '林学', '食品科学与工程'],
-    '语言':   ['翻译', '日语', '法语', '德语', '俄语', '西班牙语'],
-    '化工':   ['化学工程与工艺', '应用化学', '制药工程', '材料科学与工程']
-  };
-
-  let categories = [];
-  const name = school;
-
-  if (name.includes('师范')) {
-    categories = isLiKe ? ['教育', '计算机', '经管'] : ['教育', '文法', '经管'];
-  } else if (name.includes('医') || name.includes('医药') || name.includes('医学') || name.includes('药科')) {
-    categories = isLiKe ? ['医学'] : ['医学'];
-  } else if (name.includes('农业') || name.includes('林业') || name.includes('农林') || name.includes('农大')) {
-    categories = isLiKe ? ['农林', '经管'] : ['经管', '文法'];
-  } else if (name.includes('财经') || name.includes('商贸') || name.includes('经济') || name.includes('金融') || name.includes('工商')) {
-    categories = ['经管', '文法'];
-  } else if (name.includes('政法') || name.includes('法学') || name.includes('警察') || name.includes('公安') || name.includes('司法')) {
-    categories = ['文法'];
-  } else if (name.includes('艺术') || name.includes('传媒') || name.includes('音乐') || name.includes('美术') || name.includes('戏剧')) {
-    categories = ['艺术', '文法'];
-  } else if (name.includes('外国语') || name.includes('语言') || name.includes('外事') || name.includes('外语')) {
-    categories = isLiKe ? ['语言', '经管', '计算机'] : ['语言', '文法', '经管'];
-  } else if (name.includes('邮电')) {
-    categories = isLiKe ? ['计算机', '电子'] : ['经管', '文法'];
-  } else if (name.includes('海事') || name.includes('海洋') || name.includes('航运')) {
-    categories = isLiKe ? ['机械', '电子', '经管'] : ['经管', '文法'];
-  } else if (name.includes('航空') || name.includes('航天') || name.includes('飞行')) {
-    categories = isLiKe ? ['机械', '电子', '计算机'] : ['经管', '文法'];
-  } else if (name.includes('国防') || name.includes('军工') || name.includes('兵工')) {
-    categories = isLiKe ? ['机械', '电子', '计算机'] : ['经管', '文法'];
-  } else if (name.includes('体育') || name.includes('运动')) {
-    categories = ['教育'];
-  } else if (name.includes('石油') || name.includes('地质') || name.includes('矿业') || name.includes('化工') || name.includes('工业') || name.includes('工程')) {
-    categories = isLiKe ? ['机械', '化工', '计算机', '电子'] : ['经管', '文法'];
-  } else if (name.includes('电力') || name.includes('水利') || name.includes('能源') || name.includes('电气')) {
-    categories = isLiKe ? ['电子', '土木', '机械'] : ['经管'];
-  } else if (name.includes('理工') || name.includes('科技') || name.includes('交通')) {
-    categories = isLiKe ? ['计算机', '电子', '机械', '经管'] : ['经管', '文法', '语言'];
-  } else if (name.includes('民族')) {
-    categories = isLiKe ? ['文法', '经管', '计算机'] : ['文法', '教育', '经管'];
-  } else if (name.includes('职业') || name.includes('技术') || name.includes('专科')) {
-    categories = isLiKe ? ['计算机', '电子', '机械', '经管'] : ['经管', '文法', '教育'];
-  } else {
-    // 综合类大学（无明确行业属性）
-    categories = isLiKe
-      ? ['计算机', '电子', '经管', '文法', '机械']
-      : ['文法', '经管', '教育', '语言'];
-  }
-
-  const allMajors = [...new Set(categories.flatMap(c => majorMap[c] || []))];
-  // 取前3个（固定而非随机，保证同一学校推荐一致）
-  return allMajors.slice(0, 3);
 }
 
 function generateSummary(province, score, rankNum, subjKey, chongLen, wenLen, baoLen) {
   const total = chongLen + wenLen + baoLen;
-  let summary = `根据2025年甘肃省${subjKey === '物理' ? '物理类' : '历史类'}录取数据，`;
+  let summary = `根据2025年甘肃省${subjKey === '物理' ? '物理类' : '历史类'}录取数据（院校专业组），`;
   summary += rankNum ? `你的位次${rankNum}名` : `你的${score}分`;
   if (total > 0) {
-    summary += `，共推荐${total}所院校（冲${chongLen}所、稳${wenLen}所、保${baoLen}所）。`;
-    summary += '建议按"冲-稳-保"梯度合理搭配：冲刺院校选1-2所、稳妥院校选3-4所、保底院校选2-3所，以最大限度降低滑档风险。';
+    summary += `，共推荐${total}个院校专业组志愿（冲${chongLen}个、稳${wenLen}个、保${baoLen}个）。`;
+    summary += '建议按"冲-稳-保"梯度合理搭配：冲刺5-10个、稳妥20-25个、保底10-15个，以最大限度降低滑档风险。每个院校专业组可填6个专业。';
   } else {
-    summary += '，暂未匹配到完全合适的院校。建议联系省教育考试院获取官方志愿指导，或尝试调整目标批次范围。';
+    summary += '，暂未匹配到完全合适的院校专业组。建议联系省教育考试院获取官方志愿指导，或尝试调整目标批次范围。';
   }
   return summary;
 }
@@ -520,7 +513,10 @@ app.get('/admin', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`高考志愿助手启动成功: http://localhost:${PORT}`);
-  console.log(`已加载 ${Object.keys(GAOKAO_DATA).length} 所院校数据`);
+  let gCount = 0, rCount = 0;
+  for (const info of Object.values(GAOKAO_DATA)) { gCount += info.groups.length; for (const g of info.groups) { if (g.min_rank != null) rCount++; } }
+  console.log(`已加载 ${Object.keys(GAOKAO_DATA).length} 所院校 · ${gCount} 个专业组 · ${rCount} 个有位次数据`);
   console.log(`AI 分析: ${DEEPSEEK_API_KEY ? '已启用' : '未配置（需设置 DEEPSEEK_API_KEY）'}`);
   console.log(`激活码管理: ${ADMIN_KEY !== 'admin888' ? '已配置' : '使用默认密钥'}`);
 });
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
