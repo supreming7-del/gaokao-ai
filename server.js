@@ -432,6 +432,16 @@ app.post('/api/admin/list', (req, res) => {
   res.json({ total: list.length, codes: list });
 });
 
+// 管理后台页面（显式路由）
+app.get('/admin', (req, res) => {
+  const adminPath = path.join(__dirname, 'admin.html');
+  if (fs.existsSync(adminPath)) {
+    res.sendFile(adminPath);
+  } else {
+    res.status(404).send('管理页面未找到');
+  }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ 高考志愿助手启动成功: http://localhost:${PORT}`);
   console.log(`📊 已加载 ${Object.keys(GAOKAO_DATA).length} 所院校数据`);
