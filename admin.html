@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台 - 激活码</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, "PingFang SC", sans-serif; background:#f8fafc; color:#1e293b; padding:20px; }
+  .container { max-width:600px; margin:0 auto; }
+  .card { background:white; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,0.1); padding:20px; margin-bottom:16px; }
+  h1 { font-size:20px; margin-bottom:16px; }
+  .form-group { margin-bottom:12px; }
+  label { display:block; font-size:14px; font-weight:600; margin-bottom:4px; }
+  input, select { width:100%; padding:10px; border:1.5px solid #e2e8f0; border-radius:6px; font-size:15px; }
+  input:focus { outline:none; border-color:#3b82f6; }
+  .form-row { display:flex; gap:8px; }
+  .form-row input, .form-row select { flex:1; }
+  button { padding:10px 24px; background:#2563eb; color:white; border:none; border-radius:6px; font-size:15px; font-weight:600; cursor:pointer; }
+  button:active { transform:scale(0.97); }
+  button.danger { background:#ef4444; }
+  button.green { background:#10b981; }
+  .code-list { margin-top:12px; }
+  .code-item { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #f1f5f9; font-size:14px; }
+  .code-item:last-child { border-bottom:none; }
+  .code-item .code { font-weight:700; font-family:monospace; font-size:16px; letter-spacing:2px; }
+  .code-item .status { font-size:12px; padding:2px 8px; border-radius:4px; }
+  .status.activated { background:#d1fae5; color:#065f46; }
+  .status.unused { background:#e2e8f0; color:#475569; }
+  .status.expired { background:#fef3c7; color:#92400e; }
+  .nav { display:flex; gap:8px; margin-bottom:16px; }
+  .nav button { flex:1; padding:8px; font-size:13px; background:white; color:var(--text); border:1px solid #e2e8f0; }
+  .nav button.active { background:#2563eb; color:white; border-color:#2563eb; }
+  .batch-result { margin-top:12px; padding:10px; background:#f0fdf4; border-radius:6px; font-size:14px; }
+  .batch-result .codes { font-family:monospace; font-size:15px; letter-spacing:1px; line-height:1.8; }
+  .copy-btn { font-size:12px; padding:4px 10px; background:#f3f4f6; border:1px solid #d1d5db; border-radius:4px; cursor:pointer; }
+  #loginBox { text-align:center; padding:40px 0; }
+  #loginBox input { max-width:300px; margin:8px auto; display:block; text-align:center; }
+  .stats { display:flex; gap:12px; margin-bottom:12px; }
+  .stat-item { flex:1; text-align:center; padding:12px; background:#f8fafc; border-radius:6px; }
+  .stat-item .num { font-size:24px; font-weight:700; color:#2563eb; }
+  .stat-item .label { font-size:12px; color:#64748b; }
+</style>
+</head>
+<body>
+<div class="container" id="app">
+  <h1>🔑 激活码管理</h1>
+  <div class="card" id="loginBox">
+    <div style="font-size:40px;margin-bottom:8px;">🔐</div>
+    <p style="font-size:14px;color:#64748b;margin-bottom:12px;">输入管理员密码</p>
+    <input type="password" id="adminKey" placeholder="管理员密码" onkeydown="if(event.key==='Enter') login()">
+    <button onclick="login()" style="margin-top:8px;">登录</button>
+  </div>
+  <div id="adminPanel" style="display:none;">
+    <div class="card">
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="card">
+      <h2 style="font-size:16px;margin-bottom:10px;">生成激活码</h2>
+      <div class="form-row" style="margin-bottom:8px;">
+        <select id="days"><option value="1">1天</option><option value="3" selected>3天</option><option value="7">7天</option><option value="30">30天</option></select>
+        <input type="number" id="count" value="5" min="1" max="50" placeholder="数量">
+        <button class="green" onclick="generateCodes()">生成</button>
+      </div>
+      <input type="text" id="memo" placeholder="备注（可选）" style="margin-top:4px;">
+      <div id="genResult"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h2 style="font-size:16px;">激活码列表</h2>
+        <button onclick="loadCodes()" style="padding:6px 12px;font-size:13px;">刷新</button>
+      </div>
+      <div id="codeList"></div>
+    </div>
+  </div>
+</div>
+<script>
+const API = '/api/admin';
+let token = '';
+function login() {
+  token = document.getElementById('adminKey').value;
+  fetch(API+'/list', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({adminKey:token}) })
+    .then(r => { if(!r.ok) throw Error(); return r.json(); })
+    .then(d => {
+      document.getElementById('loginBox').style.display = 'none';
+      document.getElementById('adminPanel').style.display = 'block';
+      renderCodes(d);
+      renderStats(d);
+    })
+    .catch(() => alert('密码错误'));
+}
+function generateCodes() {
+  const days = parseInt(document.getElementById('days').value);
+  const count = parseInt(document.getElementById('count').value) || 1;
+  const memo = document.getElementById('memo').value;
+  const btn = event.target; btn.disabled = true; btn.textContent = '生成中...';
+  fetch(API+'/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({adminKey:token, days, count, memo}) })
+    .then(r => r.json())
+    .then(d => {
+      const div = document.getElementById('genResult');
+      if (d.codes) {
+        div.innerHTML = '<div class="batch-result"><strong>已生成 ' + d.codes.length + ' 个激活码</strong><br>有效期: ' + d.days + ' 天<br><div class="codes">' + d.codes.join('<br>') + '</div></div>';
+      } else {
+        div.innerHTML = '<div style="color:red">' + (d.error||'生成失败') + '</div>';
+      }
+      loadCodes();
+    })
+    .finally(() => { btn.disabled = false; btn.textContent = '生成'; });
+}
+function loadCodes() {
+  fetch(API+'/list', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({adminKey:token}) })
+    .then(r => r.json())
+    .then(d => { renderCodes(d); renderStats(d); });
+}
+function renderCodes(d) {
+  const list = document.getElementById('codeList');
+  if (!d.codes || !d.codes.length) { list.innerHTML = '<div style="text-align:center;padding:20px;color:#64748b;">暂无激活码</div>'; return; }
+  list.innerHTML = d.codes.sort((a,b)=>new Date(b.created)-new Date(a.created)).map(c => {
+    let status = 'unused', label = '未激活';
+    if (c.activated) { status = 'activated'; label = '已激活'; }
+    else if (new Date(c.expires) < new Date()) { status = 'expired'; label = '已过期'; }
+    let detail = (c.memo||'') + ' / ' + c.created + ' 至 ' + c.expires;
+    if (c.firstUsedAt) detail += ' / 首次: ' + c.firstUsedAt;
+    if (c.lastUsedAt) detail += ' / 最近: ' + c.lastUsedAt;
+    return '<div class="code-item"><div><div class="code">' + c.code + '</div><div style="font-size:12px;color:#64748b;">' + detail + '</div></div><span class="status ' + status + '">' + label + '</span></div>';
+  }).join('');
+}
+function renderStats(d) {
+  if (!d.codes) return;
+  const total = d.codes.length;
+  const activated = d.codes.filter(function(c) { return c.activated; }).length;
+  const active = d.codes.filter(function(c) { return !c.activated && new Date(c.expires) >= new Date(); }).length;
+  document.getElementById('stats').innerHTML = '<div class="stat-item"><div class="num">' + total + '</div><div class="label">总生成</div></div><div class="stat-item"><div class="num">' + activated + '</div><div class="label">已激活</div></div><div class="stat-item"><div class="num">' + active + '</div><div class="label">未激活有效</div></div>';
+}
+</script>
+</body>
+</html>

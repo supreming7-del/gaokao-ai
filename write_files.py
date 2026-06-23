@@ -1,4 +1,11 @@
-<!DOCTYPE html>
+# -*- coding: utf-8 -*-
+"""Write all three files with correct UTF-8 encoding (no BOM)"""
+import os
+
+BASE = r'/sessions/modest-gifted-planck/mnt/高考分析'
+
+# === index.html ===
+html = r'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -769,4 +776,9 @@ function fallback(score, rank, subjectType, subjects) {
 if (isUnlocked()) document.getElementById('unlockCard').style.display = 'none';
 </script>
 </body>
-</html>
+</html>'''
+
+with open(os.path.join(BASE, 'index.html'), 'w', encoding='utf-8') as f:
+    f.write(html)
+
+print('index.html written, size:', os.path.getsize(os.path.join(BASE, 'index.html')))
