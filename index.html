@@ -393,14 +393,24 @@
 <script>
 // ========== 激活码（带有效期校验） ==========
 function getExpires() { return parseInt(localStorage.getItem('gaokao_expires') || '0'); }
+function getCode() { return localStorage.getItem('gaokao_code') || ''; }
 function isUnlocked() { return Date.now() < getExpires(); }
 function daysLeft() { const e = getExpires(); if (!e) return 0; return Math.ceil((e - Date.now()) / 86400000); }
 function scrollToUnlock() { document.getElementById('codeInput').focus(); document.getElementById('unlockCard').scrollIntoView({behavior:'smooth'}); }
+
+// 激活码失效时重新锁定
+function lockUser() {
+  localStorage.removeItem('gaokao_expires');
+  localStorage.removeItem('gaokao_code');
+  document.getElementById('lockOverlay').classList.add('active');
+  document.getElementById('unlockCard').style.display = 'block';
+}
 
 // 每次页面加载校验是否过期，过期则重新锁定
 (function checkExpiry() {
   if (localStorage.getItem('gaokao_expires') && !isUnlocked()) {
     localStorage.removeItem('gaokao_expires');
+    localStorage.removeItem('gaokao_code');
   }
 })();
 
@@ -414,6 +424,7 @@ async function submitCode() {
     const data = await res.json();
     if (data.valid) {
       localStorage.setItem('gaokao_expires', String(data.expires));
+      localStorage.setItem('gaokao_code', code);
       msg.className = 'unlock-msg success';
       const days = daysLeft();
       msg.textContent = '✅ 解锁成功！有效期至 ' + new Date(data.expires).toLocaleDateString('zh-CN') + '（剩余' + days + '天）';
@@ -446,9 +457,10 @@ document.getElementById('mainForm').addEventListener('submit', async function(e)
   document.getElementById('loading').classList.add('active');
   document.getElementById('submitBtn').disabled = true;
   try {
-    const r = await fetch('/api/recommend', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({province, score, rank, subjectType}) });
+    const r = await fetch('/api/recommend', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({province, score, rank, subjectType, activationCode: getCode()}) });
     if (!r.ok) throw Error('err');
     const d = await r.json();
+    if (d.code_invalid) { lockUser(); document.getElementById('errorDetail').textContent = d.error; document.getElementById('errorBox').classList.add('active'); return; }
     if (d.error) { document.getElementById('errorDetail').textContent = d.error; document.getElementById('errorBox').classList.add('active'); return; }
     lastRecData = d; renderResults(d);
   } catch(e) {
@@ -507,10 +519,12 @@ async function analyzeSingle(schoolName, typeLabel) {
   try {
     const r = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       schools:[{school:si.school,type:typeLabel,min_rank:si.min_rank,min_score:si.min_score,diff:si.diff}],
-      userInfo:{score:lastQueryData?.score,rank:lastQueryData?.rank,subjectType:lastQueryData?.subjectType}
+      userInfo:{score:lastQueryData?.score,rank:lastQueryData?.rank,subjectType:lastQueryData?.subjectType},
+      activationCode: getCode()
     })});
     if (!r.ok) throw Error();
     const d = await r.json();
+    if (d.code_invalid) { lockUser(); scrollToUnlock(); btn.disabled=false; btn.textContent='🤖 AI 分析'; return; }
     if (d.results&&d.results[0]&&d.results[0].analysis) {
       aiResults[schoolName]=d.results[0].analysis;
       div.innerHTML='<div class="ai-label">🤖 AI 智能解读</div>'+d.results[0].analysis;
@@ -536,10 +550,12 @@ async function generateFullReport() {
   try {
     const r = await fetch('/api/full-report', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
       userInfo:{score:lastQueryData?.score,rank:lastQueryData?.rank,subjectType:lastQueryData?.subjectType},
-      chong:lastRecData.chong, wen:lastRecData.wen, bao:lastRecData.bao
+      chong:lastRecData.chong, wen:lastRecData.wen, bao:lastRecData.bao,
+      activationCode: getCode()
     })});
     if (!r.ok) throw Error();
     const d = await r.json();
+    if (d.code_invalid) { lockUser(); btn.disabled=false; btn.textContent='🤖 生成方案'; loading.style.display='none'; return; }
     loading.style.display = 'none';
     if (d.report) content.innerHTML = d.report;
     else content.innerHTML = '报告生成失败';
